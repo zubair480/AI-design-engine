@@ -5,6 +5,7 @@ import AgentTimeline from './components/AgentTimeline'
 import SimulationDashboard from './components/SimulationDashboard'
 import ResultsPanel from './components/ResultsPanel'
 import { useWebSocket } from './hooks/useWebSocket'
+import { API_BASE } from './config'
 
 type AppPhase = 'input' | 'running' | 'complete'
 
@@ -22,7 +23,7 @@ export default function App() {
     if (!sessionId || phase !== 'running') return
     const interval = setInterval(async () => {
       try {
-        const res = await fetch(`/api/results/${sessionId}`)
+        const res = await fetch(`${API_BASE}/api/results/${sessionId}`)
         if (res.ok) {
           const data = await res.json()
           setResults(data)
@@ -46,7 +47,7 @@ export default function App() {
 
   const fetchResults = async (sid: string) => {
     try {
-      const res = await fetch(`/api/results/${sid}`)
+      const res = await fetch(`${API_BASE}/api/results/${sid}`)
       if (res.ok) {
         const data = await res.json()
         setResults(data)
@@ -67,7 +68,7 @@ export default function App() {
     setPhase('running')
 
     try {
-      const res = await fetch('/api/analyze', {
+      const res = await fetch(`${API_BASE}/api/analyze`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ prompt }),
@@ -100,7 +101,7 @@ export default function App() {
     setPhase('running')
 
     try {
-      const res = await fetch('/api/followup', {
+      const res = await fetch(`${API_BASE}/api/followup`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ session_id: sessionId, prompt }),
@@ -138,7 +139,7 @@ export default function App() {
         <div className="max-w-7xl mx-auto flex justify-between items-center">
           <div className="flex items-center gap-2">
             <span className="text-xl">🧠</span>
-            <span className="text-white font-semibold text-sm">AI Decision Engine</span>
+            <span className="text-white font-semibold text-sm">EstateAgent AI</span>
           </div>
           <div className="flex items-center gap-4">
             {sessionId && (

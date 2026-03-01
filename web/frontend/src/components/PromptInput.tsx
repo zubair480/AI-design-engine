@@ -48,7 +48,7 @@ export default function PromptInput({ onSubmit, isLoading }: PromptInputProps) {
           🧠
         </motion.div>
         <h1 className="text-4xl font-bold gradient-text mb-3">
-          AI Decision Engine
+          EstateAgent AI
         </h1>
         <p className="text-gray-400 text-lg">
           Multi-agent system with Monte Carlo simulation &bull; Powered by Qwen 2.5 on Modal
