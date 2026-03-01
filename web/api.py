@@ -152,10 +152,15 @@ def web():
         if not session_id or not prompt:
             raise HTTPException(status_code=422, detail="Missing 'session_id' or 'prompt' in request body")
 
+        # override_regions can be passed as a list of "City, ST" strings
+        override_regions = None
+        if isinstance(payload, dict) and isinstance(payload.get("override_regions"), list):
+            override_regions = payload["override_regions"]
+
         run_followup.spawn(
             session_id,
             prompt,
-            override_params,
+            override_regions,
         )
 
         return {

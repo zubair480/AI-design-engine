@@ -1,9 +1,12 @@
 """
-Planner Agent — Decomposes a user objective into a directed acyclic graph (DAG)
-of parallelizable subtasks.
+Planner Agent — The Architect.
 
-Input:  Free-text business objective (e.g. "Design a profitable coffee shop in Urbana")
-Output: Structured task graph with dependency edges, stored in shared memory.
+Analyzes a client's investment request, extracts budget and goals,
+and breaks the geography into 3-5 specific target regions for parallel
+Analyst agents to investigate.
+
+Input:  Free-text investment objective
+Output: Structured JSON with budget, goals, target_regions, analyst_instructions
 """
 
 from __future__ import annotations
@@ -16,48 +19,52 @@ import modal
 from config import app, sim_image
 
 
-PLANNER_SYSTEM_PROMPT = """You are a strategic business planning AI. Given a user's business objective, decompose it into concrete, quantifiable subtasks that can be executed by specialist agents.
+# ═══════════════════════════════════════════════════════════════════════════
+# System Prompt — forces strict JSON output with geographic targets
+# ═══════════════════════════════════════════════════════════════════════════
 
-You MUST output valid JSON matching this exact schema:
+PLANNER_SYSTEM_PROMPT = """You are the Lead Strategist for a real estate investment firm. Your job is to analyze a client's investment request and break it down into smaller geographic regions for your local analysts to investigate.
 
+You must output your response in strict JSON format. Do not include introductory text.
+
+Required JSON structure:
 {
-  "objective": "<restated objective>",
-  "business_type": "<type of business, e.g. coffee_shop, warehouse, food_truck>",
-  "location": "<target location if mentioned>",
-  "subtasks": [
-    {
-      "id": "<unique snake_case id>",
-      "type": "research | simulation | evaluation",
-      "title": "<human-readable title>",
-      "description": "<what this task does>",
-      "depends_on": ["<id of prerequisite task>"],
-      "params": {}
-    }
-  ]
+  "client_budget": "<Extracted budget as a string, e.g. '$500,000'. If not stated, write 'Not specified'>",
+  "investment_goals": ["<goal 1, e.g. 'cash flow'>", "<goal 2, e.g. 'appreciation'>"],
+  "property_types": ["<type 1, e.g. 'single-family rental'>", "<type 2, e.g. 'multi-family'>"],
+  "target_regions": [
+    "<City 1, ST>",
+    "<City 2, ST>",
+    "<City 3, ST>"
+  ],
+  "analyst_instructions": "<Specific metrics and questions the local analysts must evaluate, tailored to this particular request. Be detailed.>",
+  "time_horizon": "<short-term (1-3 yr) | medium-term (3-7 yr) | long-term (7+ yr)>",
+  "risk_tolerance": "<conservative | moderate | aggressive>"
 }
 
 Rules:
-1. Always include these research tasks: demographics, foot_traffic, competitor_analysis
-2. Always include these simulation tasks: revenue_simulation, cost_modeling
-3. Always include an evaluation task: risk_analysis (depends on simulations)
-4. Research tasks have NO dependencies (they run in parallel)
-5. Simulation tasks depend on relevant research tasks
-6. Evaluation depends on simulation tasks
-7. Keep subtasks to 5-8 total for efficiency
-8. Each subtask must have a unique id"""
+1. target_regions MUST contain 3 to 5 specific cities formatted as "City, ST" (two-letter state code).
+2. Choose cities that fall within or logically relate to the user's requested area.
+3. Pick cities that represent DIVERSE sub-markets (mix of urban, suburban, college town, etc.) so the comparison is meaningful.
+4. analyst_instructions should reference the client's specific budget, goals, and property preferences.
+5. If the user does not specify a budget, estimate a reasonable one and note it.
+6. If the user asks about a single city, expand to that city plus 2-4 nearby alternatives for comparison.
+7. If the user asks about a state or broad region, pick the 3-5 most promising metro areas.
+8. investment_goals should be inferred from context if not explicitly stated."""
 
 
 @app.function(image=sim_image, timeout=600)
 def plan(user_prompt: str, session_id: str | None = None) -> dict[str, Any]:
     """
-    Break a user objective into a task DAG.
+    Break down an investment request into geographic targets.
 
     Args:
-        user_prompt: The raw business objective from the user.
+        user_prompt: Free-text investment objective from the client.
         session_id: Optional session ID. Generated if not provided.
 
     Returns:
-        Dict with keys: session_id, objective, subtasks, execution_waves
+        Dict with: session_id, client_budget, investment_goals, target_regions,
+                    analyst_instructions, time_horizon, risk_tolerance
     """
     from llm.client import call_llm_json
     from memory.store import save, emit_event, set_status
@@ -65,74 +72,50 @@ def plan(user_prompt: str, session_id: str | None = None) -> dict[str, Any]:
     if session_id is None:
         session_id = uuid.uuid4().hex[:12]
 
-    set_status(session_id, "planning", 0.0, "Analyzing objective...")
+    set_status(session_id, "planning", 0.0, "Analyzing investment request...")
 
-    # Call LLM to generate task DAG
+    # Call LLM to decompose the request into geographic targets
     result = call_llm_json(
-        prompt=f"Business objective: {user_prompt}",
+        prompt=f"Client request: {user_prompt}",
         system_prompt=PLANNER_SYSTEM_PROMPT,
         temperature=0.2,
     )
 
-    # Validate and normalize the plan
-    subtasks = result.get("subtasks", [])
-    task_ids = {t["id"] for t in subtasks}
+    # Validate and normalize
+    target_regions = result.get("target_regions", [])
+    if not target_regions:
+        result["target_regions"] = ["Unknown Region"]
 
-    for task in subtasks:
-        # Ensure depends_on references exist
-        task["depends_on"] = [d for d in task.get("depends_on", []) if d in task_ids]
-        task.setdefault("params", {})
-
-    # Topological sort into execution waves (groups of parallelizable tasks)
-    waves = _compute_waves(subtasks)
+    # Ensure regions are clean strings
+    target_regions = [str(r).strip() for r in result.get("target_regions", []) if r]
 
     plan_output = {
         "session_id": session_id,
-        "objective": result.get("objective", user_prompt),
-        "business_type": result.get("business_type", "unknown"),
-        "location": result.get("location", "unknown"),
-        "subtasks": subtasks,
-        "execution_waves": waves,
+        "user_prompt": user_prompt,
+        "client_budget": result.get("client_budget", "Not specified"),
+        "investment_goals": result.get("investment_goals", ["cash flow", "appreciation"]),
+        "property_types": result.get("property_types", ["single-family rental"]),
+        "target_regions": target_regions,
+        "analyst_instructions": result.get(
+            "analyst_instructions",
+            "Evaluate market feasibility, investment risk, and projected 5-year ROI.",
+        ),
+        "time_horizon": result.get("time_horizon", "medium-term (3-7 yr)"),
+        "risk_tolerance": result.get("risk_tolerance", "moderate"),
     }
 
-    # Persist plan to shared memory
+    # Persist to shared memory
     save(session_id, "plan", plan_output)
     emit_event(session_id, {
         "event": "plan_complete",
         "session_id": session_id,
-        "objective": plan_output["objective"],
-        "num_tasks": len(subtasks),
-        "num_waves": len(waves),
-        "tasks": [{"id": t["id"], "title": t["title"], "type": t["type"]} for t in subtasks],
+        "num_regions": len(target_regions),
+        "regions": target_regions,
+        "budget": plan_output["client_budget"],
     })
-    set_status(session_id, "planning", 1.0, f"Plan ready: {len(subtasks)} tasks in {len(waves)} waves")
+    set_status(
+        session_id, "planning", 1.0,
+        f"Plan ready: {len(target_regions)} regions targeted",
+    )
 
     return plan_output
-
-
-def _compute_waves(subtasks: list[dict]) -> list[list[str]]:
-    """
-    Topologically sort tasks into execution waves.
-
-    Wave N contains all tasks whose dependencies are fully in waves 0..N-1.
-    Tasks in the same wave can run in parallel.
-    """
-    task_map = {t["id"]: t for t in subtasks}
-    completed: set[str] = set()
-    waves: list[list[str]] = []
-
-    remaining = set(task_map.keys())
-    while remaining:
-        # Find all tasks whose deps are satisfied
-        wave = [
-            tid for tid in remaining
-            if all(d in completed for d in task_map[tid].get("depends_on", []))
-        ]
-        if not wave:
-            # Circular dependency — break it by forcing remaining into one wave
-            wave = list(remaining)
-        waves.append(sorted(wave))
-        completed.update(wave)
-        remaining -= set(wave)
-
-    return waves

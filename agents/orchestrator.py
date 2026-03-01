@@ -1,8 +1,13 @@
 """
-Orchestrator — Executes the full agent pipeline from user prompt to final output.
+Orchestrator — Map-Reduce pipeline linking the three agent tiers.
 
-Manages the DAG execution: plans tasks, fans out research in parallel,
-runs simulations, and produces the final evaluation.
+Stage 1  →  Planner (single LLM call → JSON with target regions)
+             ↓
+        Python fetches live market data from Zillow / Redfin for each region
+             ↓
+Stage 2  →  Parallel Analysts (N Modal containers, one per region)
+             ↓
+Stage 3  →  Conclusion (single LLM call synthesises all analyst reports)
 """
 
 from __future__ import annotations
@@ -15,29 +20,32 @@ import modal
 from config import app, sim_image
 
 
+# ═══════════════════════════════════════════════════════════════════════════
+# Main pipeline  (Planner → Data Fetch → Analysts → Conclusion)
+# ═══════════════════════════════════════════════════════════════════════════
+
 @app.function(image=sim_image, timeout=900)
 def run_pipeline(user_prompt: str, session_id: str | None = None) -> dict[str, Any]:
     """
-    Execute the full decision engine pipeline.
+    Execute the full 3-tier Map-Reduce investment analysis pipeline.
 
-    Steps:
-        1. Planner: decompose objective → task DAG
-        2. Research: parallel execution of all research tasks
-        3. Simulation: Monte Carlo fan-out across 100 containers
-        4. Evaluation: scoring + LLM strategic analysis
+    1. PLAN   — Planner agent decomposes the prompt into target regions.
+    2. FETCH  — Python downloads live Zillow/Redfin data for every region.
+    3. ANALYSE — Parallel Analyst agents deep-dive each region (the "Map" step).
+    4. CONCLUDE — Conclusion agent synthesises all reports (the "Reduce" step).
 
     Args:
-        user_prompt: Free-text business objective.
-        session_id: Optional session ID (generated if None).
+        user_prompt: Free-text investment objective.
+        session_id:  Optional session ID (generated if None).
 
     Returns:
-        Final evaluation results.
+        Complete pipeline output dict.
     """
     from memory.store import save, emit_event, set_status
     from agents.planner import plan
-    from agents.research import research
-    from agents.simulation import run_full_simulation
-    from agents.evaluation import evaluate
+    from agents.analyst import analyze_region
+    from agents.conclusion import conclude
+    from data.market_data import fetch_all_market_data
 
     if session_id is None:
         session_id = uuid.uuid4().hex[:12]
@@ -51,66 +59,99 @@ def run_pipeline(user_prompt: str, session_id: str | None = None) -> dict[str, A
         "prompt": user_prompt,
     })
 
-    # ---- PHASE 1: PLANNING ----
+    # ──────────────────────────────────────────────────────────────────
+    # STAGE 1: PLANNER  (The Architect)
+    # ──────────────────────────────────────────────────────────────────
+    print("\n🏗️  STAGE 1 / 4 — Planner: decomposing investment request...")
     plan_result = plan.remote(user_prompt, session_id)
-    subtasks = plan_result["subtasks"]
-    waves = plan_result["execution_waves"]
 
-    # ---- PHASE 2: RESEARCH (parallel) ----
-    # Collect all research-type tasks from wave 0
-    research_tasks = [t for t in subtasks if t["type"] == "research"]
+    target_regions = plan_result["target_regions"]
+    budget = plan_result["client_budget"]
+    goals = plan_result["investment_goals"]
+    instructions = plan_result["analyst_instructions"]
 
-    # Map research subtask IDs for parallel execution
-    research_inputs = [
-        (t["id"], session_id, t.get("params", {}))
-        for t in research_tasks
-    ]
+    print(f"   ✅ Planner identified {len(target_regions)} regions: {target_regions}")
+    print(f"   Budget: {budget}  |  Goals: {', '.join(goals)}")
 
-    research_results = {}
-    if research_inputs:
-        set_status(session_id, "researching", 0.0, f"Running {len(research_inputs)} research tasks in parallel...")
+    # ──────────────────────────────────────────────────────────────────
+    # STAGE 2: DATA FETCH  (Python downloads real market data)
+    # ──────────────────────────────────────────────────────────────────
+    print("\n📊  STAGE 2 / 4 — Fetching live market data from Zillow & Redfin...")
+    set_status(session_id, "fetching_data", 0.0,
+               f"Downloading market data for {len(target_regions)} regions...")
 
-        # 🔥 PARALLEL RESEARCH — all research tasks run concurrently
-        results = list(research.starmap(research_inputs))
-        for r in results:
-            subtask_id = r.get("_subtask_id", "unknown")
-            research_results[subtask_id] = r
+    market_data = fetch_all_market_data(target_regions)
 
-    # ---- PHASE 3: SIMULATION (massively parallel) ----
-    # First, ask the LLM to generate business-specific simulation parameters
-    # based on the prompt, location, and research findings
-    llm_business_params = _generate_business_params(
-        user_prompt,
-        plan_result.get("business_type", "unknown"),
-        plan_result.get("location", "unknown"),
-        research_results,
+    for region, data in market_data.items():
+        has_value = "median_home_value" in data.get("zillow", {})
+        has_rent = "median_rent" in data.get("zillow", {})
+        print(f"   📍 {region}: home_value={'✅' if has_value else '❌'}  rent={'✅' if has_rent else '❌'}")
+
+    save(session_id, "market_data", market_data)
+    set_status(session_id, "fetching_data", 1.0, "Market data ready")
+
+    # ──────────────────────────────────────────────────────────────────
+    # STAGE 3: PARALLEL ANALYSTS  (The Swarm — one container per region)
+    # ──────────────────────────────────────────────────────────────────
+    print(f"\n🔬  STAGE 3 / 4 — Launching {len(target_regions)} Analyst agents in parallel...")
+    set_status(session_id, "analysing", 0.0,
+               f"Running {len(target_regions)} parallel analyst agents...")
+
+    # Build starmap inputs: each analyst gets its region + data
+    analyst_inputs = []
+    for region in target_regions:
+        region_data = market_data.get(region, {})
+        summary = region_data.get("summary", "No market data available for this region.")
+        analyst_inputs.append((
+            region,                     # region
+            budget,                     # budget
+            summary,                    # market_data_summary
+            instructions,               # analyst_instructions
+            session_id,                 # session_id
+            goals,                      # investment_goals
+        ))
+
+    # 🔥 PARALLEL DISPATCH — all analyst agents run concurrently on Modal
+    analyst_reports: list[dict] = list(analyze_region.starmap(analyst_inputs))
+
+    # Sort by total score descending
+    analyst_reports.sort(
+        key=lambda r: r.get("investment_score", {}).get("total", 0),
+        reverse=True,
     )
-    research_results["_llm_business_params"] = llm_business_params
 
-    # Check for simulation tasks
-    sim_tasks = [t for t in subtasks if t["type"] == "simulation"]
-    sim_result = None
+    for report in analyst_reports:
+        region = report.get("region", "?")
+        score = report.get("investment_score", {}).get("total", "?")
+        print(f"   ✅ {region}: Investment Score = {score}/100")
 
-    if sim_tasks:
-        sim_result = run_full_simulation.remote(
-            session_id=session_id,
-            research_data=research_results,
-        )
+    save(session_id, "analyst_reports", analyst_reports)
+    set_status(session_id, "analysing", 1.0, "All analyst reports complete")
 
-    # ---- PHASE 4: EVALUATION ----
-    eval_result = evaluate.remote(session_id)
+    # ──────────────────────────────────────────────────────────────────
+    # STAGE 4: CONCLUSION  (The Senior Wealth Advisor)
+    # ──────────────────────────────────────────────────────────────────
+    print("\n📝  STAGE 4 / 4 — Conclusion agent synthesising final recommendation...")
+    conclusion = conclude.remote(
+        user_prompt=user_prompt,
+        analyst_reports=analyst_reports,
+        plan_context=plan_result,
+        session_id=session_id,
+    )
 
     pipeline_elapsed = round(time.time() - pipeline_start, 2)
 
-    # ---- FINAL OUTPUT ----
+    # ──────────────────────────────────────────────────────────────────
+    # FINAL OUTPUT
+    # ──────────────────────────────────────────────────────────────────
     final_output = {
         "session_id": session_id,
         "user_prompt": user_prompt,
         "pipeline_elapsed_seconds": pipeline_elapsed,
         "plan": plan_result,
-        "research": {k: {kk: vv for kk, vv in v.items() if not kk.startswith("_")} for k, v in research_results.items()},
-        "simulation": sim_result,
-        "evaluation": eval_result,
+        "market_data_regions": list(market_data.keys()),
+        "analyst_reports": analyst_reports,
+        "conclusion": conclusion,
     }
 
     save(session_id, "final_output", final_output)
@@ -118,81 +159,108 @@ def run_pipeline(user_prompt: str, session_id: str | None = None) -> dict[str, A
         "event": "pipeline_complete",
         "session_id": session_id,
         "elapsed_seconds": pipeline_elapsed,
-        "recommendation": eval_result.get("llm_analysis", {}).get("recommendation", "unknown"),
+        "recommendation": conclusion.get("recommendation", "unknown"),
+        "recommended_region": conclusion.get("recommended_region", "unknown"),
     })
 
     return final_output
 
 
+# ═══════════════════════════════════════════════════════════════════════════
+# Follow-up handler (re-analyse with modified parameters)
+# ═══════════════════════════════════════════════════════════════════════════
+
 @app.function(image=sim_image, timeout=600)
 def run_followup(
     session_id: str,
     followup_prompt: str,
-    override_params: dict[str, Any] | None = None,
+    override_regions: list[str] | None = None,
 ) -> dict[str, Any]:
     """
-    Handle a follow-up query that reuses prior research and re-runs simulation.
+    Handle a follow-up question that builds on a prior analysis.
 
-    Example: "What if rent increases 20%?"
+    Examples:
+      "What about Decatur instead of Marion?"
+      "Re-run with a $300k budget."
 
     Args:
-        session_id: Existing session to build upon.
-        followup_prompt: The follow-up question.
-        override_params: Explicit parameter overrides for simulation.
+        session_id:        Existing session to build upon.
+        followup_prompt:   The follow-up question.
+        override_regions:  Explicit new regions to analyse (optional).
 
     Returns:
-        Updated evaluation results.
+        Updated pipeline output.
     """
     from memory.store import load, save, emit_event, set_status
     from llm.client import call_llm_json
-    from agents.simulation import run_full_simulation
-    from agents.evaluation import evaluate
+    from agents.analyst import analyze_region
+    from agents.conclusion import conclude
+    from data.market_data import fetch_all_market_data
 
-    set_status(session_id, "followup", 0.0, f"Processing follow-up: {followup_prompt[:80]}...")
+    set_status(session_id, "followup", 0.0,
+               f"Processing follow-up: {followup_prompt[:80]}...")
 
     emit_event(session_id, {
         "event": "followup_started",
         "prompt": followup_prompt,
     })
 
-    # If no explicit overrides, use LLM to interpret the follow-up
-    if override_params is None:
-        prior_params = load(session_id, "simulation", {}).get("parameters_used", {})
-        override_params = call_llm_json(
-            prompt=f"""Given these current simulation parameters:
-{prior_params}
+    # Load prior context
+    prior_plan = load(session_id, "plan", {})
+    user_prompt = prior_plan.get("user_prompt", "")
+    budget = prior_plan.get("client_budget", "Not specified")
+    goals = prior_plan.get("investment_goals", [])
+    instructions = prior_plan.get("analyst_instructions", "")
 
+    # Determine which regions to analyse
+    if override_regions:
+        target_regions = override_regions
+    else:
+        # Ask LLM to interpret the follow-up
+        interpretation = call_llm_json(
+            prompt=f"""Prior analysis targeted these regions: {prior_plan.get('target_regions', [])}
 The user asks: "{followup_prompt}"
 
-Return a JSON object with ONLY the parameters that should change.
-For example, if rent increases 20%, return: {{"monthly_rent": {prior_params.get('monthly_rent', 3500) * 1.2}}}
-Only include changed parameters.""",
-            system_prompt="You are a parameter adjustment assistant. Output only a JSON object of changed parameters.",
+Return JSON: {{"target_regions": ["City, ST", ...], "updated_budget": "<budget or null>", "updated_instructions": "<instructions or null>"}}
+Only include regions the user wants analysed. If they want to keep the same regions, return the same list.""",
+            system_prompt="You interpret follow-up investment queries. Output strict JSON only.",
             temperature=0.1,
         )
+        target_regions = interpretation.get("target_regions", prior_plan.get("target_regions", []))
+        if interpretation.get("updated_budget"):
+            budget = interpretation["updated_budget"]
+        if interpretation.get("updated_instructions"):
+            instructions = interpretation["updated_instructions"]
 
-    # Re-run simulation with modified parameters (reuses research data)
-    research_data = {}
-    for key_suffix in ["demographics", "foot_traffic", "competitor_analysis"]:
-        data = load(session_id, f"research:{key_suffix}")
-        if data:
-            research_data[key_suffix] = data
+    # Fetch data + run analysts + conclude (same flow as main pipeline)
+    market_data = fetch_all_market_data(target_regions)
+    save(session_id, "market_data_followup", market_data)
 
-    sim_result = run_full_simulation.remote(
-        session_id=session_id,
-        research_data=research_data,
-        override_params=override_params,
+    analyst_inputs = []
+    for region in target_regions:
+        region_data = market_data.get(region, {})
+        summary = region_data.get("summary", "No market data available.")
+        analyst_inputs.append((region, budget, summary, instructions, session_id, goals))
+
+    analyst_reports = list(analyze_region.starmap(analyst_inputs))
+    analyst_reports.sort(
+        key=lambda r: r.get("investment_score", {}).get("total", 0),
+        reverse=True,
     )
 
-    # Re-run evaluation
-    eval_result = evaluate.remote(session_id)
+    conclusion = conclude.remote(
+        user_prompt=f"{user_prompt}\n\nFollow-up: {followup_prompt}",
+        analyst_reports=analyst_reports,
+        plan_context={**prior_plan, "client_budget": budget},
+        session_id=session_id,
+    )
 
     followup_output = {
         "session_id": session_id,
         "followup_prompt": followup_prompt,
-        "parameter_changes": override_params,
-        "simulation": sim_result,
-        "evaluation": eval_result,
+        "target_regions": target_regions,
+        "analyst_reports": analyst_reports,
+        "conclusion": conclusion,
     }
 
     save(session_id, "followup_result", followup_output)
@@ -202,97 +270,3 @@ Only include changed parameters.""",
     })
 
     return followup_output
-
-
-# ---------------------------------------------------------------------------
-# LLM-based business parameter generator
-# ---------------------------------------------------------------------------
-
-_PARAM_SYSTEM_PROMPT = """You are a business financial modeling expert. Given a business idea, location, and research data, estimate realistic simulation parameters.
-
-You MUST output valid JSON with these exact keys:
-{
-  "foot_traffic_mean": <int, average daily foot traffic/customers near the business>,
-  "foot_traffic_std": <int, standard deviation of daily traffic>,
-  "conversion_rate_alpha": <float, Beta distribution alpha for purchase rate>,
-  "conversion_rate_beta": <float, Beta distribution beta for purchase rate>,
-  "avg_order_value_mean": <float, log-space mean of average order value (exp(x) = dollar amount)>,
-  "avg_order_value_std": <float, log-space std dev>,
-  "monthly_rent": <int, monthly rent in dollars>,
-  "rent_variance": <float, 0-0.2, how much rent fluctuates>,
-  "monthly_labor": <int, total monthly staff costs>,
-  "monthly_cogs_pct": <float, 0.15-0.60, cost of goods as fraction of revenue>,
-  "monthly_utilities": <int, monthly utility costs>,
-  "initial_investment": <int, total startup capital needed>,
-  "seasonal_amplitude": <float, 0-0.4, seasonal variation strength>
-}
-
-Guidelines for different business types:
-- Coffee shop: foot_traffic 150-400, AOV exp(1.3-1.8)=$3.50-$6, COGS 25-35%, investment $80K-250K
-- Food truck: foot_traffic 80-250, AOV exp(2.0-2.5)=$7-$12, COGS 30-40%, investment $50K-150K, low rent
-- Warehouse: foot_traffic 10-50, AOV exp(5.5-7.5)=$250-$1800, COGS 60-80%, investment $500K-2M, high rent
-- Co-working: foot_traffic 20-100, AOV exp(3.5-4.2)=$33-$67/day, COGS 10-20%, investment $200K-800K
-- Restaurant: foot_traffic 100-350, AOV exp(2.5-3.5)=$12-$33, COGS 28-35%, investment $150K-500K
-
-Adjust for location:
-- Downtown/urban: higher rent, higher foot traffic
-- Suburban: lower rent, lower foot traffic
-- College town: seasonal (high Aug-May, low Jun-Jul), younger demographic
-- Expensive cities (SF, NYC): 2-3x rent, higher wages
-
-Be specific and realistic. Different businesses must produce VERY different numbers."""
-
-
-def _generate_business_params(
-    user_prompt: str,
-    business_type: str,
-    location: str,
-    research_data: dict,
-) -> dict:
-    """Ask the LLM to generate business-specific simulation parameters."""
-    from llm.client import call_llm_json
-
-    research_summary = ""
-    demo = research_data.get("demographics", {})
-    ft = research_data.get("foot_traffic", {})
-    comp = research_data.get("competitor_analysis", {})
-
-    if demo:
-        research_summary += f"Demographics: median income ${demo.get('median_income', 'N/A')}, student pct {demo.get('avg_student_pct', 'N/A')}, population {demo.get('total_population', 'N/A')}. "
-    if ft:
-        research_summary += f"Foot traffic: avg {ft.get('overall_avg_traffic', 'N/A')}/day. "
-    if comp:
-        research_summary += f"Competitors: {comp.get('total_competitors', 'N/A')} nearby, saturation {comp.get('market_saturation', 'N/A')}. "
-
-    try:
-        params = call_llm_json(
-            prompt=f"""Business idea: {user_prompt}
-Business type: {business_type}
-Location: {location}
-Research findings: {research_summary if research_summary else 'No local data available.'}
-
-Generate realistic Monte Carlo simulation parameters for this specific business.""",
-            system_prompt=_PARAM_SYSTEM_PROMPT,
-            temperature=0.3,
-        )
-        # Validate keys and types
-        validated = {}
-        expected_ints = ["foot_traffic_mean", "foot_traffic_std", "monthly_rent", "monthly_labor", "monthly_utilities", "initial_investment"]
-        expected_floats = ["conversion_rate_alpha", "conversion_rate_beta", "avg_order_value_mean", "avg_order_value_std", "rent_variance", "monthly_cogs_pct", "seasonal_amplitude"]
-
-        for k in expected_ints:
-            if k in params:
-                try:
-                    validated[k] = int(float(params[k]))
-                except (ValueError, TypeError):
-                    pass
-        for k in expected_floats:
-            if k in params:
-                try:
-                    validated[k] = float(params[k])
-                except (ValueError, TypeError):
-                    pass
-        return validated
-    except Exception as e:
-        print(f"Warning: LLM param generation failed ({e}), using defaults")
-        return {}

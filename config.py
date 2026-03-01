@@ -50,7 +50,7 @@ def _add_local_sources(image):
         .add_local_dir("data", remote_path="/data")
     )
 
-# Base image shared by simulation, research, evaluation agents
+# Base image shared by all agents (planner, analyst, conclusion, simulation, etc.)
 sim_image = _add_local_sources(
     modal.Image.debian_slim(python_version="3.12")
     .pip_install(
@@ -59,6 +59,7 @@ sim_image = _add_local_sources(
         "pandas>=2.2",
         "pydantic>=2.6",
         "httpx>=0.27",
+        "redfin",          # reteps/redfin for supplementary market data
     )
 )
 
