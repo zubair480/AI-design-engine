@@ -1,4 +1,5 @@
 import { useEffect, useRef, useState, useCallback } from 'react'
+import { wsBase } from '../config'
 
 export interface AgentEvent {
   event: string
@@ -33,9 +34,8 @@ export function useWebSocket(): UseWebSocketReturn {
     setEvents([])
     setLastEvent(null)
 
-    const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:'
-    const host = window.location.host
-    const url = `${protocol}//${host}/api/ws/${sessionId}`
+    const base = wsBase()
+    const url = `${base}/api/ws/${sessionId}`
 
     const ws = new WebSocket(url)
     wsRef.current = ws

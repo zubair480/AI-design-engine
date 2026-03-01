@@ -192,6 +192,24 @@ def research(subtask_id: str, session_id: str, params: dict | None = None) -> di
     # Persist to memory
     save(session_id, f"research:{subtask_id}", result)
 
+    # Also write a lightweight embedding summary to the supermemory (optional)
+    try:
+        from memory.store import save_embedding
+
+        # Build a short textual summary for vector storage
+        summary_parts = []
+        for k, v in result.items():
+            if k.startswith("_"):
+                continue
+            # Keep small pieces only
+            if isinstance(v, (str, int, float)):
+                summary_parts.append(f"{k}: {v}")
+        summary_text = " | ".join(summary_parts[:10])[:1000]
+        save_embedding(session_id, f"research:{subtask_id}", summary_text, metadata={"subtask": subtask_id})
+    except Exception:
+        # Embeddings are optional — failure must not break the research flow
+        pass
+
     emit_event(session_id, {
         "event": "research_complete",
         "subtask_id": subtask_id,

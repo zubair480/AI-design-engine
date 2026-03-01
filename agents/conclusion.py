@@ -71,7 +71,7 @@ Output strict JSON with this schema:
     "<step 2>",
     "<step 3>"
   ],
-  "full_advisory_memo": "<The complete 400-700 word advisory memo, written in first-person plural advisory voice (Our team..., We recommend...). Use line breaks for readability.>"
+  "full_advisory_memo": "<The complete 400-700 word advisory memo, written in first-person plural advisory voice (Our team..., We recommend...). Use line breaks for readability. it's statement not an email>"
 }"""
 
 

@@ -6,7 +6,7 @@ import AgentTimeline from './components/AgentTimeline'
 import PipelineProgress from './components/PipelineProgress'
 import ResultsPanel from './components/ResultsPanel'
 import { useWebSocket } from './hooks/useWebSocket'
-import { SkeletonCard } from './components/ui'
+import { API_BASE } from './config'
 
 type AppPhase = 'input' | 'running' | 'complete'
 
@@ -25,7 +25,7 @@ export default function App() {
     if (!sessionId || phase !== 'running') return
     const interval = setInterval(async () => {
       try {
-        const res = await fetch(`/api/results/${sessionId}`)
+        const res = await fetch(`${API_BASE}/api/results/${sessionId}`)
         if (res.ok) {
           const data = await res.json()
           setResults(data)
@@ -46,7 +46,7 @@ export default function App() {
 
   const fetchResults = async (sid: string) => {
     try {
-      const res = await fetch(`/api/results/${sid}`)
+      const res = await fetch(`${API_BASE}/api/results/${sid}`)
       if (res.ok) {
         const data = await res.json()
         setResults(data)
@@ -65,7 +65,7 @@ export default function App() {
     setPhase('running')
 
     try {
-      const res = await fetch('/api/analyze', {
+      const res = await fetch(`${API_BASE}/api/analyze`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ prompt }),
@@ -90,7 +90,7 @@ export default function App() {
     setIsLoading(true)
     setPhase('running')
     try {
-      const res = await fetch('/api/followup', {
+      const res = await fetch(`${API_BASE}/api/followup`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ session_id: sessionId, prompt }),
@@ -117,24 +117,52 @@ export default function App() {
   }
 
   return (
-    <div className="flex h-screen overflow-hidden bg-base ambient-grid">
-      {/* ── Left sidebar ── */}
-      <Sidebar
-        onSubmit={handleSubmit}
-        isLoading={isLoading}
-        phase={phase}
-        isConnected={isConnected}
-        sessionId={sessionId}
-        onReset={handleReset}
-        prompt={prompt}
-        onPromptChange={setPrompt}
-      />
+    <div className="min-h-screen bg-gray-950">
+      {/* Top bar */}
+      <header className="border-b border-gray-800/50 px-6 py-3">
+        <div className="max-w-7xl mx-auto flex justify-between items-center">
+          <div className="flex items-center gap-2">
+            <span className="text-xl">🧠</span>
+            <span className="text-white font-semibold text-sm">EstateAgent AI</span>
+          </div>
+          <div className="flex items-center gap-4">
+            {sessionId && (
+              <span className="text-xs text-gray-500 font-mono">
+                Session: {sessionId}
+              </span>
+            )}
+            {isConnected && (
+              <span className="flex items-center gap-1 text-xs text-green-400">
+                <span className="w-1.5 h-1.5 bg-green-400 rounded-full pulse-ring" />
+                Live
+              </span>
+            )}
+            {phase !== 'input' && (
+              <button
+                onClick={handleReset}
+                className="text-xs text-gray-400 hover:text-white transition-colors"
+              >
+                ← New Analysis
+              </button>
+            )}
+          </div>
+        </div>
+      </header>
 
-      {/* ── Main content area ── */}
-      <main className="flex-1 overflow-y-auto relative">
-        <div className="max-w-5xl mx-auto px-8 py-8">
-          {/* Error */}
-          {error && (
+      {/* Main content */}
+      <main className="max-w-7xl mx-auto px-6 py-8">
+        {error && (
+          <motion.div
+            initial={{ opacity: 0 }}
+            animate={{ opacity: 1 }}
+            className="bg-red-900/30 border border-red-800/50 rounded-lg p-4 mb-6 text-red-300 text-sm"
+          >
+            ⚠️ {error}
+          </motion.div>
+        )}
+
+        <AnimatePresence mode="wait">
+          {phase === 'input' && (
             <motion.div
               initial={{ opacity: 0, y: -8 }}
               animate={{ opacity: 1, y: 0 }}
