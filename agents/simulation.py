@@ -77,9 +77,11 @@ def run_single_batch(params: dict) -> dict[str, Any]:
 
         for month in range(12):
             # Seasonal multiplier (peaks in fall/spring for college towns)
-            seasonal = 1.0 + seasonal_amp * np.sin(2 * np.pi * (month - 2) / 12)
+            seasonal = 1.0 + seasonal_amp * \
+                np.sin(2 * np.pi * (month - 2) / 12)
 
-            days_in_month = [31, 28, 31, 30, 31, 30, 31, 31, 30, 31, 30, 31][month]
+            days_in_month = [31, 28, 31, 30, 31,
+                             30, 31, 31, 30, 31, 30, 31][month]
             month_revenue = 0.0
 
             for _ in range(days_in_month):
@@ -97,7 +99,8 @@ def run_single_batch(params: dict) -> dict[str, Any]:
 
             # Monthly costs
             month_rent = base_rent * (1 + rng.normal(0, rent_var))
-            month_cost = month_rent + labor + (month_revenue * cogs_pct) + utilities
+            month_cost = month_rent + labor + \
+                (month_revenue * cogs_pct) + utilities
 
             yearly_revenue += month_revenue
             yearly_cost += month_cost
@@ -145,7 +148,8 @@ def run_full_simulation(
     import os
     from memory.store import save, emit_event, set_status
 
-    set_status(session_id, "simulating", 0.0, "Preparing simulation parameters...")
+    set_status(session_id, "simulating", 0.0,
+               "Preparing simulation parameters...")
 
     # Build simulation parameters from research data
     sim_params = _build_sim_params(research_data or {})
@@ -284,8 +288,10 @@ def _build_sim_params(research_data: dict[str, Any]) -> dict[str, Any]:
     llm_params = research_data.get("_llm_business_params", {})
 
     # Foot traffic — prefer LLM estimate, fallback to research data
-    ft_mean = llm_params.get("foot_traffic_mean") or ft.get("estimated_daily_foot_traffic_mean", 250)
-    ft_std = llm_params.get("foot_traffic_std") or ft.get("estimated_daily_foot_traffic_std", 60)
+    ft_mean = llm_params.get("foot_traffic_mean") or ft.get(
+        "estimated_daily_foot_traffic_mean", 250)
+    ft_std = llm_params.get("foot_traffic_std") or ft.get(
+        "estimated_daily_foot_traffic_std", 60)
 
     # Adjust based on demographics (higher student % = more coffee demand)
     student_pct = demo.get("avg_student_pct", 0.15)
