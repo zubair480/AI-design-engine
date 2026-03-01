@@ -5,113 +5,146 @@ interface AgentTimelineProps {
   events: AgentEvent[]
 }
 
-const EVENT_CONFIG: Record<string, { icon: string; color: string; label: string }> = {
-  pipeline_started: { icon: '🚀', color: 'text-blue-400', label: 'Pipeline Started' },
-  plan_complete: { icon: '📋', color: 'text-purple-400', label: 'Plan Generated' },
-  research_started: { icon: '🔬', color: 'text-yellow-400', label: 'Research Started' },
-  research_complete: { icon: '✅', color: 'text-green-400', label: 'Research Complete' },
-  simulation_started: { icon: '⚡', color: 'text-orange-400', label: 'Simulation Started' },
-  simulation_progress: { icon: '📊', color: 'text-cyan-400', label: 'Simulation Progress' },
-  simulation_complete: { icon: '🎯', color: 'text-green-400', label: 'Simulation Complete' },
-  evaluation_started: { icon: '🧠', color: 'text-indigo-400', label: 'Evaluation Started' },
-  evaluation_complete: { icon: '📈', color: 'text-emerald-400', label: 'Evaluation Complete' },
-  pipeline_complete: { icon: '🏆', color: 'text-yellow-300', label: 'Pipeline Complete' },
-  status_update: { icon: '📡', color: 'text-gray-400', label: 'Status Update' },
-  sandbox_execution: { icon: '🔒', color: 'text-red-400', label: 'Sandbox Execution' },
-  code_generated: { icon: '💻', color: 'text-pink-400', label: 'Code Generated' },
-  followup_started: { icon: '🔄', color: 'text-blue-400', label: 'Follow-up Started' },
-  followup_complete: { icon: '✅', color: 'text-green-400', label: 'Follow-up Complete' },
-  done: { icon: '🏁', color: 'text-green-300', label: 'Done' },
+const EVENT_CONFIG: Record<string, { label: string; color: string; bg: string; glow: boolean }> = {
+  pipeline_started: { label: 'Pipeline Started', color: 'text-teal-bright', bg: 'bg-teal', glow: true },
+  plan_complete: { label: 'Plan Generated', color: 'text-sage', bg: 'bg-sage', glow: true },
+  analyst_started: { label: 'Analyst Running', color: 'text-warning', bg: 'bg-warning', glow: true },
+  analyst_complete: { label: 'Analyst Complete', color: 'text-teal-bright', bg: 'bg-teal', glow: true },
+  conclusion_started: { label: 'Conclusion Generating', color: 'text-sage', bg: 'bg-sage', glow: true },
+  conclusion_complete: { label: 'Conclusion Ready', color: 'text-teal-bright', bg: 'bg-teal', glow: true },
+  pipeline_complete: { label: 'Pipeline Complete', color: 'text-teal-bright', bg: 'bg-teal', glow: true },
+  status_update: { label: 'Status Update', color: 'text-muted/60', bg: 'bg-muted/30', glow: false },
+  followup_started: { label: 'Follow-up Started', color: 'text-teal-bright', bg: 'bg-teal', glow: true },
+  followup_complete: { label: 'Follow-up Complete', color: 'text-teal-bright', bg: 'bg-teal', glow: true },
+  done: { label: 'Done', color: 'text-teal-bright', bg: 'bg-teal', glow: true },
 }
 
 function getEventDescription(event: AgentEvent): string {
   switch (event.event) {
     case 'pipeline_started':
-      return `Analyzing: "${event.prompt?.slice(0, 60)}..."`
+      return `Analyzing: "${(event.prompt || '').slice(0, 50)}…"`
     case 'plan_complete':
-      return `Created ${event.num_tasks} tasks in ${event.num_waves} execution waves`
-    case 'research_started':
-      return `Running: ${event.subtask_id?.replace(/_/g, ' ')}`
-    case 'research_complete':
-      return `Completed: ${event.subtask_id?.replace(/_/g, ' ')}`
-    case 'simulation_started':
-      return `Launching ${event.num_containers} containers × ${event.batch_size} scenarios = ${event.total_scenarios?.toLocaleString()} total`
-    case 'simulation_progress':
-      return `${event.completed?.toLocaleString()} / ${event.total?.toLocaleString()} scenarios (${event.pct}%)`
-    case 'simulation_complete':
-      return `${event.total_scenarios?.toLocaleString()} scenarios in ${event.elapsed_seconds}s — Mean profit: $${(event.mean_profit || 0).toLocaleString(undefined, { maximumFractionDigits: 0 })}`
-    case 'evaluation_complete':
-      return `Recommendation: ${event.recommendation} — ROI: ${event.roi_pct?.toFixed(1)}% — Loss probability: ${event.prob_loss?.toFixed(1)}%`
+      return `${event.num_regions || 0} regions: ${(event.regions || []).join(', ').slice(0, 60)}${(event.regions || []).join(', ').length > 60 ? '…' : ''}`
+    case 'analyst_started':
+      return `Analyzing ${event.region || 'region'}…`
+    case 'analyst_complete':
+      return `${event.region || '?'} — score ${event.score || '?'}/100`
+    case 'conclusion_started':
+      return 'Synthesizing final advisory…'
+    case 'conclusion_complete':
+      return `${(event.recommendation || '').replace(/_/g, ' ')} → ${event.recommended_region || ''}`
     case 'pipeline_complete':
-      return `Total pipeline time: ${event.elapsed_seconds}s`
+      return `${event.elapsed_seconds}s total`
     case 'status_update':
       return event.message || ''
     default:
-      return JSON.stringify(event).slice(0, 100)
+      return ''
   }
 }
 
 export default function AgentTimeline({ events }: AgentTimelineProps) {
-  // Filter out status_update noise — keep only meaningful events
-  const meaningfulEvents = events.filter(e => e.event !== 'status_update')
+  const meaningful = events.filter(e => e.event !== 'status_update')
+  const isRunning = meaningful.length > 0 && !meaningful.some(e => e.event === 'pipeline_complete' || e.event === 'done')
 
   return (
-    <div className="bg-gray-900/50 border border-gray-800 rounded-xl p-6 card-glow">
-      <h2 className="text-lg font-semibold text-white mb-4 flex items-center gap-2">
-        <span className="text-brand-400">⚡</span> Agent Activity
-      </h2>
+    <div className="h-full flex flex-col">
+      {/* Header */}
+      <div className="flex items-center justify-between mb-5">
+        <h3 className="text-xs font-bold text-ink uppercase tracking-wide">Agent Activity</h3>
+        {isRunning && (
+          <motion.span
+            initial={{ opacity: 0, scale: 0.8 }}
+            animate={{ opacity: 1, scale: 1 }}
+            className="flex items-center gap-2 text-[11px] text-teal-bright font-bold bg-teal/10 border border-teal/20 px-2.5 py-1 rounded-lg"
+          >
+            <span className="w-2 h-2 rounded-full bg-teal-bright animate-pulse-dot" />
+            LIVE
+          </motion.span>
+        )}
+      </div>
 
-      <div className="space-y-2 max-h-[400px] overflow-y-auto pr-2">
+      {/* Timeline */}
+      <div className="flex-1 overflow-y-auto space-y-0 pr-1 -mr-1">
         <AnimatePresence>
-          {meaningfulEvents.map((event, idx) => {
-            const config = EVENT_CONFIG[event.event] || { icon: '📌', color: 'text-gray-400', label: event.event }
+          {meaningful.map((event, idx) => {
+            const config = EVENT_CONFIG[event.event] || { label: event.event, color: 'text-muted', bg: 'bg-muted/30', glow: false }
+            const desc = getEventDescription(event)
+            const isComplete = event.event.includes('complete') || event.event === 'done'
+
             return (
               <motion.div
                 key={idx}
-                initial={{ opacity: 0, x: -20, height: 0 }}
-                animate={{ opacity: 1, x: 0, height: 'auto' }}
-                transition={{ duration: 0.3 }}
-                className="flex items-start gap-3 py-2 border-b border-gray-800/50 last:border-0"
+                initial={{ opacity: 0, x: -12, scale: 0.95 }}
+                animate={{ opacity: 1, x: 0, scale: 1 }}
+                transition={{ duration: 0.35, delay: 0.05, ease: [0.25, 0.46, 0.45, 0.94] }}
+                className="flex items-start gap-3.5 py-3 group relative"
               >
-                {/* Timeline dot */}
-                <div className="flex-shrink-0 mt-1">
-                  <span className="text-lg">{config.icon}</span>
+                {/* Dot + connecting line */}
+                <div className="flex flex-col items-center pt-1 flex-shrink-0 relative">
+                  <div className={`relative`}>
+                    <div className={`w-2.5 h-2.5 rounded-full ${config.bg} transition-all duration-300`} />
+                    {config.glow && (
+                      <div className={`absolute inset-0 w-2.5 h-2.5 rounded-full ${config.bg} animate-pulse-dot opacity-40`} />
+                    )}
+                  </div>
+                  {idx < meaningful.length - 1 && (
+                    <div className="w-px flex-1 bg-border/60 mt-1 min-h-[16px]" />
+                  )}
                 </div>
 
                 {/* Content */}
-                <div className="flex-1 min-w-0">
+                <div className="flex-1 min-w-0 -mt-0.5">
                   <div className="flex items-center gap-2">
-                    <span className={`text-sm font-medium ${config.color}`}>
+                    <p className={`text-xs font-bold ${config.color} leading-tight`}>
                       {config.label}
-                    </span>
-                    {event.timestamp && (
-                      <span className="text-xs text-gray-600">
-                        {new Date(event.timestamp * 1000).toLocaleTimeString()}
-                      </span>
+                    </p>
+                    {isComplete && (
+                      <span className="text-[9px] text-teal bg-teal/10 px-1.5 py-0.5 rounded font-bold">✓</span>
                     )}
                   </div>
-                  <p className="text-sm text-gray-400 truncate">
-                    {getEventDescription(event)}
-                  </p>
+                  {desc && (
+                    <p className="text-[11px] text-muted/70 mt-1 truncate leading-snug">
+                      {desc}
+                    </p>
+                  )}
                 </div>
 
-                {/* Active indicator for in-progress events */}
-                {(event.event === 'simulation_started' || event.event === 'research_started') && (
-                  <div className="flex-shrink-0">
-                    <div className="w-2 h-2 bg-green-400 rounded-full pulse-ring" />
-                  </div>
+                {/* Timestamp */}
+                {event.timestamp && (
+                  <span className="text-[9px] text-muted/30 flex-shrink-0 pt-0.5 font-mono">
+                    {new Date(event.timestamp * 1000).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit' })}
+                  </span>
                 )}
               </motion.div>
             )
           })}
         </AnimatePresence>
 
-        {meaningfulEvents.length === 0 && (
-          <div className="text-center text-gray-600 py-8">
-            Waiting for agent activity...
+        {meaningful.length === 0 && (
+          <div className="flex flex-col items-center justify-center py-16 text-center">
+            <motion.div
+              animate={{ opacity: [0.3, 0.6, 0.3] }}
+              transition={{ duration: 3, repeat: Infinity }}
+              className="w-12 h-12 rounded-xl bg-surface-2 border border-border flex items-center justify-center mb-4"
+            >
+              <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="#8B8B9E" strokeWidth="1.5" strokeLinecap="round">
+                <circle cx="12" cy="12" r="10" /><polyline points="12 6 12 12 16 14" />
+              </svg>
+            </motion.div>
+            <p className="text-xs text-muted/40 font-medium">Waiting for activity…</p>
+            <p className="text-[10px] text-muted/25 mt-1">Start an analysis to see agent events</p>
           </div>
         )}
       </div>
+
+      {/* Event count */}
+      {meaningful.length > 0 && (
+        <div className="pt-3 border-t border-border/50 mt-2">
+          <p className="text-[10px] text-muted/40 text-center font-mono">
+            {meaningful.length} events
+          </p>
+        </div>
+      )}
     </div>
   )
 }

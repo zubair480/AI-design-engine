@@ -23,7 +23,7 @@ from config import app, sim_image
 # System Prompt — forces strict JSON output with geographic targets
 # ═══════════════════════════════════════════════════════════════════════════
 
-PLANNER_SYSTEM_PROMPT = """You are the Lead Strategist for a real estate investment firm. Your job is to analyze a client's investment request and break it down into smaller geographic regions for your local analysts to investigate.
+PLANNER_SYSTEM_PROMPT = """You are the Lead Strategist for a real estate investment firm. Your job is to analyze a client's investment request and break it down into 10-20 smaller geographic regions for your local analysts to investigate.
 
 You must output your response in strict JSON format. Do not include introductory text.
 
@@ -43,13 +43,13 @@ Required JSON structure:
 }
 
 Rules:
-1. target_regions MUST contain 3 to 5 specific cities formatted as "City, ST" (two-letter state code).
+1. target_regions MUST contain 5 to 20 specific cities formatted as "City, ST" (two-letter state code).
 2. Choose cities that fall within or logically relate to the user's requested area.
 3. Pick cities that represent DIVERSE sub-markets (mix of urban, suburban, college town, etc.) so the comparison is meaningful.
 4. analyst_instructions should reference the client's specific budget, goals, and property preferences.
 5. If the user does not specify a budget, estimate a reasonable one and note it.
-6. If the user asks about a single city, expand to that city plus 2-4 nearby alternatives for comparison.
-7. If the user asks about a state or broad region, pick the 3-5 most promising metro areas.
+6. If the user asks about a single city, expand to that city plus 5-6 nearby alternatives for comparison.
+7. If the user asks about a state or broad region, pick the 5-20 most promising metro areas.
 8. investment_goals should be inferred from context if not explicitly stated."""
 
 

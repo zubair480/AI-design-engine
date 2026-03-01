@@ -1,14 +1,14 @@
 import { useMemo } from 'react'
 import { motion } from 'framer-motion'
 import { AgentEvent } from '../hooks/useWebSocket'
+import { FadeIn, GlassCard } from './ui'
 
 interface SimulationDashboardProps {
   events: AgentEvent[]
 }
 
 export default function SimulationDashboard({ events }: SimulationDashboardProps) {
-  // Extract simulation state from events
-  const simState = useMemo(() => {
+  const sim = useMemo(() => {
     let started = false
     let completed = 0
     let total = 0
@@ -40,95 +40,115 @@ export default function SimulationDashboard({ events }: SimulationDashboardProps
     return { started, completed, total, numContainers, elapsed, done, meanProfit, probLoss }
   }, [events])
 
-  if (!simState.started) {
-    return null
-  }
+  if (!sim.started) return null
 
-  const pct = simState.total > 0 ? (simState.completed / simState.total) * 100 : 0
+  const pct = sim.total > 0 ? (sim.completed / sim.total) * 100 : 0
 
   return (
-    <motion.div
-      initial={{ opacity: 0, scale: 0.95 }}
-      animate={{ opacity: 1, scale: 1 }}
-      transition={{ duration: 0.4 }}
-      className="bg-gray-900/50 border border-gray-800 rounded-xl p-6 card-glow"
-    >
-      <h2 className="text-lg font-semibold text-white mb-4 flex items-center gap-2">
-        <span className="text-orange-400">🔥</span> Monte Carlo Simulation
-      </h2>
-
-      {/* Metrics grid */}
-      <div className="grid grid-cols-2 md:grid-cols-4 gap-4 mb-6">
-        <MetricCard
-          label="Scenarios"
-          value={simState.completed.toLocaleString()}
-          subtext={`/ ${simState.total.toLocaleString()}`}
-          color="text-cyan-400"
-        />
-        <MetricCard
-          label="Containers"
-          value={simState.numContainers.toString()}
-          subtext="parallel"
-          color="text-orange-400"
-        />
-        <MetricCard
-          label="Elapsed"
-          value={simState.done ? `${simState.elapsed}s` : '...'}
-          subtext={simState.done ? 'completed' : 'running'}
-          color="text-green-400"
-        />
-        <MetricCard
-          label="Speed"
-          value={simState.elapsed > 0 ? `${Math.round(simState.completed / simState.elapsed)}/s` : '...'}
-          subtext="scenarios/sec"
-          color="text-purple-400"
-        />
-      </div>
-
-      {/* Progress bar */}
-      <div className="mb-4">
-        <div className="flex justify-between text-sm text-gray-400 mb-1">
-          <span>Progress</span>
-          <span>{pct.toFixed(1)}%</span>
+    <FadeIn>
+      <GlassCard className="space-y-6">
+        {/* Heading */}
+        <div className="flex items-center justify-between">
+          <div className="flex items-center gap-3">
+            <div className="w-8 h-8 rounded-lg gradient-accent flex items-center justify-center shadow-glow-teal">
+              <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="white" strokeWidth="2" strokeLinecap="round">
+                <path d="M12 2v4m0 12v4M4.93 4.93l2.83 2.83m8.48 8.48l2.83 2.83M2 12h4m12 0h4M4.93 19.07l2.83-2.83m8.48-8.48l2.83-2.83" />
+              </svg>
+            </div>
+            <h3 className="text-base font-bold text-ink tracking-title">Monte Carlo Simulation</h3>
+          </div>
+          {sim.done ? (
+            <motion.span
+              initial={{ scale: 0.8, opacity: 0 }}
+              animate={{ scale: 1, opacity: 1 }}
+              className="text-[11px] font-bold text-teal-bright bg-teal/15 border border-teal/25 px-3 py-1 rounded-lg"
+            >
+              ✓ Complete
+            </motion.span>
+          ) : (
+            <span className="flex items-center gap-2 text-[11px] text-warning font-bold bg-warning/10 border border-warning/20 px-3 py-1 rounded-lg">
+              <span className="w-2 h-2 rounded-full bg-warning animate-pulse-dot" />
+              Running
+            </span>
+          )}
         </div>
-        <div className="w-full bg-gray-800 rounded-full h-3 overflow-hidden">
-          <motion.div
-            className="h-full rounded-full bg-gradient-to-r from-brand-600 to-cyan-400"
-            initial={{ width: 0 }}
-            animate={{ width: `${pct}%` }}
-            transition={{ duration: 0.5, ease: 'easeOut' }}
+
+        {/* Metrics row */}
+        <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
+          <MiniMetric
+            label="Scenarios"
+            value={sim.completed.toLocaleString()}
+            sub={`/ ${sim.total.toLocaleString()}`}
+            highlight={sim.done}
+          />
+          <MiniMetric
+            label="Containers"
+            value={sim.numContainers.toString()}
+            sub="parallel"
+            highlight={false}
+          />
+          <MiniMetric
+            label="Elapsed"
+            value={sim.done ? `${sim.elapsed}s` : '…'}
+            sub={sim.done ? 'completed' : 'running'}
+            highlight={sim.done}
+          />
+          <MiniMetric
+            label="Throughput"
+            value={sim.elapsed > 0 ? `${Math.round(sim.completed / sim.elapsed)}/s` : '…'}
+            sub="scenarios/sec"
+            highlight={sim.elapsed > 0}
           />
         </div>
-      </div>
 
-      {/* Completion banner */}
-      {simState.done && (
-        <motion.div
-          initial={{ opacity: 0, y: 10 }}
-          animate={{ opacity: 1, y: 0 }}
-          className="bg-green-900/30 border border-green-800/50 rounded-lg p-4 text-center"
-        >
-          <p className="text-green-300 font-medium">
-            ✅ {simState.completed.toLocaleString()} simulations completed in {simState.elapsed}s
-            across {simState.numContainers} parallel containers
-          </p>
-        </motion.div>
-      )}
-    </motion.div>
+        {/* Progress bar */}
+        <div>
+          <div className="flex justify-between text-xs text-muted mb-2">
+            <span className="font-medium">Progress</span>
+            <span className="font-bold text-ink">{pct.toFixed(1)}%</span>
+          </div>
+          <div className="w-full bg-surface-2 rounded-full h-3 overflow-hidden border border-border/50">
+            <motion.div
+              className="h-full rounded-full gradient-accent relative"
+              initial={{ width: 0 }}
+              animate={{ width: `${pct}%` }}
+              transition={{ duration: 0.5, ease: 'easeOut' }}
+            >
+              {!sim.done && (
+                <div className="absolute inset-0 rounded-full progress-glow" />
+              )}
+            </motion.div>
+          </div>
+        </div>
+
+        {/* Completion banner */}
+        {sim.done && (
+          <motion.div
+            initial={{ opacity: 0, y: 8, scale: 0.98 }}
+            animate={{ opacity: 1, y: 0, scale: 1 }}
+            transition={{ duration: 0.4, ease: [0.25, 0.46, 0.45, 0.94] }}
+            className="bg-teal/8 border border-teal/20 rounded-xl p-5 text-center"
+          >
+            <p className="text-sm text-teal-bright font-semibold">
+              🎯 {sim.completed.toLocaleString()} simulations completed in <span className="font-bold">{sim.elapsed}s</span> across {sim.numContainers} containers
+            </p>
+          </motion.div>
+        )}
+      </GlassCard>
+    </FadeIn>
   )
 }
 
-function MetricCard({ label, value, subtext, color }: {
-  label: string
-  value: string
-  subtext: string
-  color: string
-}) {
+function MiniMetric({ label, value, sub, highlight }: { label: string; value: string; sub: string; highlight: boolean }) {
   return (
-    <div className="bg-gray-800/50 rounded-lg p-3 text-center">
-      <div className="text-xs text-gray-500 uppercase tracking-wide mb-1">{label}</div>
-      <div className={`text-2xl font-bold ${color}`}>{value}</div>
-      <div className="text-xs text-gray-500">{subtext}</div>
-    </div>
+    <motion.div
+      className={`rounded-xl p-3.5 text-center border transition-all duration-300 ${highlight ? 'bg-teal/8 border-teal/20' : 'bg-surface-2 border-border/50'
+        }`}
+      whileHover={{ scale: 1.02 }}
+    >
+      <div className="text-[10px] text-muted uppercase tracking-wider font-bold mb-1">{label}</div>
+      <div className={`text-xl font-bold ${highlight ? 'text-teal-bright' : 'text-ink'}`}>{value}</div>
+      <div className="text-[10px] text-muted/60">{sub}</div>
+    </motion.div>
   )
 }
