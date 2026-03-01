@@ -216,9 +216,24 @@ def run_followup(
     if override_regions:
         target_regions = override_regions
     else:
+        # Optionally enrich the LLM prompt with relevant prior findings from supermemory
+        extra_context = ""
+        try:
+            from memory.store import query_similar
+
+            # Query for up to 5 similar past research items using the followup text
+            sims = query_similar(session_id, query_text=followup_prompt, k=5)
+            if sims:
+                lines = [f"- {s.get('text') or s.get('id')} (score={s.get('score',0):.3f})" for s in sims]
+                extra_context = "\nRelevant prior findings:\n" + "\n".join(lines)
+        except Exception:
+            # If supermemory isn't available, continue without it
+            extra_context = ""
+
         # Ask LLM to interpret the follow-up
         interpretation = call_llm_json(
             prompt=f"""Prior analysis targeted these regions: {prior_plan.get('target_regions', [])}
+{extra_context}
 The user asks: "{followup_prompt}"
 
 Return JSON: {{"target_regions": ["City, ST", ...], "updated_budget": "<budget or null>", "updated_instructions": "<instructions or null>"}}
