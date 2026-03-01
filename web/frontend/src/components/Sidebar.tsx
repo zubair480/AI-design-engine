@@ -63,8 +63,8 @@ export default function Sidebar({ onSubmit, isLoading, phase, isConnected, sessi
                         </svg>
                     </motion.div>
                     <div>
-                        <h1 className="text-base font-bold text-ink tracking-title">Property Advisor</h1>
-                        <p className="text-xs text-muted font-medium">AI Real Estate Intelligence</p>
+                        <h1 className="text-base font-bold text-ink tracking-title">EstateAgent AI</h1>
+                        <p className="text-xs text-muted font-medium">Intelligent Investment Analysis</p>
                     </div>
                 </div>
             </div>

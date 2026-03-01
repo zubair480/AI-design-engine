@@ -1,4 +1,3 @@
-import { useState } from 'react'
 import { motion } from 'framer-motion'
 import {
   BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer,
@@ -8,11 +7,9 @@ import { FadeIn, GlassCard, MetricCard, Badge, SectionTitle } from './ui'
 
 interface ResultsPanelProps {
   results: any
-  onFollowup: (prompt: string) => void
 }
 
-export default function ResultsPanel({ results, onFollowup }: ResultsPanelProps) {
-  const [followupPrompt, setFollowupPrompt] = useState('')
+export default function ResultsPanel({ results }: ResultsPanelProps) {
 
   if (!results) return null
 
@@ -46,14 +43,6 @@ export default function ResultsPanel({ results, onFollowup }: ResultsPanelProps)
     score: r.score || 0,
     rank: r.rank || 0,
   }))
-
-  const handleFollowup = (e: React.FormEvent) => {
-    e.preventDefault()
-    if (followupPrompt.trim()) {
-      onFollowup(followupPrompt.trim())
-      setFollowupPrompt('')
-    }
-  }
 
   const recBadge = (rec: string) => {
     if (rec === 'strong_buy') return <Badge variant="success">Strong Buy</Badge>
@@ -304,41 +293,12 @@ export default function ResultsPanel({ results, onFollowup }: ResultsPanelProps)
       <FadeIn delay={0.45}>
         <div className="text-center py-4">
           <p className="text-xs text-muted/40 font-mono">
-            {analystReports.length} regions · {pipelineTime}s · Map-Reduce pipeline on Modal
+            EstateAgent AI · {analystReports.length} regions · {pipelineTime}s · Map-Reduce pipeline on Modal
           </p>
         </div>
       </FadeIn>
 
-      {/* ── Follow-up ── */}
-      <FadeIn delay={0.5}>
-        <GlassCard>
-          <SectionTitle sub="Ask about different regions, budget changes, or strategies.">
-            Ask a Follow-up
-          </SectionTitle>
-          <form onSubmit={handleFollowup} className="flex gap-3">
-            <input
-              type="text"
-              value={followupPrompt}
-              onChange={(e) => setFollowupPrompt(e.target.value)}
-              placeholder="What about Decatur instead? Or re-run with $300k budget..."
-              className="flex-1 bg-surface border border-border rounded-xl px-4 py-3 text-sm text-ink
-                         placeholder-muted/40 focus:outline-none focus:ring-2 focus:ring-teal/25
-                         focus:border-teal/30 transition-all hover:border-teal/20"
-            />
-            <motion.button
-              type="submit"
-              disabled={!followupPrompt.trim()}
-              whileHover={followupPrompt.trim() ? { scale: 1.03 } : {}}
-              whileTap={followupPrompt.trim() ? { scale: 0.97 } : {}}
-              className="gradient-accent text-white px-6 py-3 rounded-xl text-sm font-bold
-                         shadow-glow-teal hover:shadow-glow-lg transition-all duration-300
-                         disabled:opacity-30 disabled:cursor-not-allowed disabled:shadow-none"
-            >
-              Re-analyze
-            </motion.button>
-          </form>
-        </GlassCard>
-      </FadeIn>
+
     </motion.div>
   )
 }

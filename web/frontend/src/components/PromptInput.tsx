@@ -55,7 +55,7 @@ export default function PromptInput({ onSubmit, isLoading, prompt, onPromptChang
             className="inline-flex items-center gap-2.5 bg-teal/10 border border-teal/20 text-teal-bright px-5 py-2 rounded-full text-xs font-bold mb-8 tracking-wide"
           >
             <span className="w-2 h-2 rounded-full bg-teal-bright animate-pulse-dot" />
-            AI Real Estate Intelligence
+            EstateAgent AI
           </motion.div>
 
           <motion.h1
