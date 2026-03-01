@@ -14,7 +14,8 @@ import modal
 from config import app, sim_image
 
 
-EVAL_SYSTEM_PROMPT = """You are an expert business strategy consultant analyzing quantitative simulation results.
+EVAL_SYSTEM_PROMPT = """"You are an expert Hyper-Local Real Estate Analyst for __REGION__.
+.
 
 Given:
 - Monte Carlo simulation statistics (profit distribution, risk metrics, ROI)
